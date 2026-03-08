@@ -1,0 +1,10 @@
+opencv-python-headless
+confluent-kafka
+numpy
+torch
+torchvision
+anomalib
+psycopg2-binary
+boto3
+streamlit
+psycopg2-binary

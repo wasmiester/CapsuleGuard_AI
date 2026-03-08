@@ -1,0 +1,26 @@
+dataset:
+  name: mvtec
+  format: mvtec
+  path: ./data/capsule
+  category: capsule
+  train_batch_size: 32
+  eval_batch_size: 32
+  num_workers: 8
+  image_size: [256, 256] # We resize for speed
+
+model:
+  name: patchcore
+  backbone: wide_resnet50_2 # Pro-grade feature extractor
+  pre_trained: true
+  layers:
+    - layer2
+    - layer3
+  coreset_sampling_ratio: 0.1 # Shrinks the memory bank for faster speed
+
+metrics:
+  image:
+    - F1Score
+    - AUROC
+
+project:
+    path: ./results

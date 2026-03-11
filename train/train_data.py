@@ -10,9 +10,6 @@ torch.set_float32_matmul_precision('medium')
 def train_brain():
     print("--- Initializing AI Brain (PatchCore) ---")
 
-    # The 'root' should be the folder CONTAINING the 'capsule' directory, 
-    # OR point directly to it if configured correctly.
-    # If your images are in ./data/capsule/train/good, use root="./data"
     datamodule = MVTecAD(
         root=Path("./data"), 
         category="capsule",
@@ -20,7 +17,6 @@ def train_brain():
         eval_batch_size=32
     )
 
-    # Manual override: tell Anomalib the data is already there so it skips download
     datamodule.prepare_data = lambda: None 
 
     model = Patchcore(
@@ -36,14 +32,13 @@ def train_brain():
     print("--- Building the Memory Bank... Utilizing RTX 4070 ---")
     
     engine.fit(model=model, datamodule=datamodule)
+    
+    full_save_path = Path("./results/exported_model/weights/torch/model.pt")
+    full_save_path.parent.mkdir(parents=True, exist_ok=True)
+    
+    torch.save(model, full_save_path)
 
-    engine.export(
-        model=model,
-        export_type="torch",
-        export_root="./results/exported_model"
-    )
-
-    print("--- Success! Model exported to ./results/exported_model ---")
+    print(f"--- SUCCESS: Full object with Memory Bank saved to {full_save_path} ---")
 
 if __name__ == "__main__":
     train_brain()

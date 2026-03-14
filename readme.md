@@ -74,7 +74,7 @@ Each crop undergoes a transformation sequence:
 * **Transfer:** Tensors are moved to **CUDA** for hardware acceleration.
 
 ### 3. Classification
-The neural network evaluates the surface texture and geometry to categorize the capsule as:
+The neural network evaluates the surface texture and geometry to categorize the capsule as ACCEPT or REJECT based on:
 * **Intact**
 * **Scuffed**
 * **Damaged**

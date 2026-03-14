@@ -1,146 +1,121 @@
 import cv2
-import numpy as np
-import base64
-import json
-from confluent_kafka import Consumer
 import torch
-from torchvision import transforms
+import os
+import json
 import time
+from pathlib import Path
+from anomalib.models import Patchcore
+import sys
+import yaml
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+from utils.vision_helpers import VisionHelper
 
-MODEL_PATH = "results/exported_model/weights/torch/model.pt"
-KAFKA_SERVER = "localhost:9092"
+os.environ["TRUST_REMOTE_CODE"] = "1"
+torch.serialization.add_safe_globals([Patchcore])
 
-THRESHOLD = 0.85      
-MIN_AREA = 1500        
-MAX_AREA = 60000       
-MIN_CIRCULARITY = 0.4  
-
-BUFFER_SIZE = 3  
-SHOW_HEATMAP = False  
-
-transform = transforms.Compose([
-    transforms.ToPILImage(),
-    transforms.Resize((224, 224)),
-    transforms.ToTensor(),
-    transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
-])
-
-print("--- Loading Model ---")
-model = torch.load(MODEL_PATH, map_location="cuda", weights_only=False)
-model.to("cuda")
-model.eval()
-
-
-kafka_conf = {
-    'bootstrap.servers': KAFKA_SERVER,
-    'group.id': f'inspector-group-{time.time()}', 
-    'auto.offset.reset': 'latest',
-    'enable.auto.commit': False,
-    'fetch.min.bytes': 1,
-    'socket.receive.buffer.bytes': 262144
-}
-consumer = Consumer(kafka_conf)
-consumer.subscribe(['raw_frames'])
-
-def base64_to_cv2(b64_str):
-    img_data = base64.b64decode(b64_str)
-    nparr = np.frombuffer(img_data, np.uint8)
-    return cv2.imdecode(nparr, cv2.IMREAD_COLOR)
-
-def start_inspection():
-    print("--- LIVE QC INSPECTION ACTIVE ---")
-    cv2.namedWindow("AI Quality Control", cv2.WINDOW_NORMAL)
-    
-    try:
-        while True:
-            msg = consumer.poll(0.1)
-            while True:
-                next_msg = consumer.poll(0)
-                if next_msg is None: break
-                msg = next_msg
-
-            if msg is None or msg.error(): continue
+class CapsuleInspector:
+    def __init__(self):
+        with open("config.yaml", "r") as f:
+            self.cfg = yaml.safe_load(f)
             
-            data = json.loads(msg.value().decode('utf-8'))
-            frame = base64_to_cv2(data['image'])
-            display_frame = frame.copy()
-            
-            # 1. Detection Phase
-            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-            blurred = cv2.GaussianBlur(gray, (11,11), 0)
-            _, thresh = cv2.threshold(blurred, 127, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
-            
-            kernel = np.ones((5,5), np.uint8)
-            thresh = cv2.morphologyEx(thresh, cv2.MORPH_OPEN, kernel)
-            contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        # Pathing: Looks for results folder in the project root
+        model_path = Path(__file__).parent.parent / "results/exported_model/weights/torch/model.pt"
+        
+        # Load the model
+        checkpoint = torch.load(model_path, map_location="cuda", weights_only=False)
 
-            tablet_count = 0
-            frame_scores = []
-
-            # 2. Inspection Phase
-            for cnt in contours:
-                area = cv2.contourArea(cnt)
-                perimeter = cv2.arcLength(cnt, True)
-                if perimeter == 0: continue
-                circularity = 4 * np.pi * (area / (perimeter * perimeter))
-
-                if MIN_AREA < area < MAX_AREA and circularity > MIN_CIRCULARITY:
-                    tablet_count += 1
-                    x, y, w, h = cv2.boundingRect(cnt)
-                    
-                    # Crop and Analyze
-                    pad_w = int(w * 0.2) 
-                    pad_h = int(h * 0.2)
-
-                    y1, y2 = max(0, y-pad_h), min(frame.shape[0], y+h+pad_h)
-                    x1, x2 = max(0, x-pad_w), min(frame.shape[1], x+w+pad_w)
-                    capsule_crop = frame[y1:y2, x1:x2]
-
-                    crop_rgb = cv2.cvtColor(capsule_crop, cv2.COLOR_BGR2RGB)
-                    input_tensor = transform(crop_rgb).unsqueeze(0).to("cuda")
-                    
-                    with torch.no_grad():
-                        output = model(input_tensor)
-                    
-                    score = float(output.pred_score.cpu().item())
-                    frame_scores.append(score)
-
-                    # Draw per-capsule boxes
-                    box_color = (0, 0, 255) if score > THRESHOLD else (0, 255, 0)
-                    cv2.rectangle(display_frame, (x, y), (x + w, y + h), box_color, 2)
-                    cv2.putText(display_frame, f"SCR: {score:.2f}", (x, y-10), 
-                                cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255,255,255), 1)
-
-            # 3. Status Logic
-            if tablet_count == 0:
-                status_label = "IDLE - NO OBJECT"
-                main_color = (0, 255, 255)
-                avg_score = 0.0
+        if isinstance(checkpoint, dict):
+            if "model" in checkpoint:
+                self.model = checkpoint["model"]
+            elif "state_dict" in checkpoint:
+                self.model = checkpoint["state_dict"] 
             else:
-                # REJECT if ANY capsule in the frame is over threshold
-                status_label = "REJECT" if any(s > THRESHOLD for s in frame_scores) else "ACCEPT"
-                main_color = (0, 0, 255) if status_label == "REJECT" else (0, 255, 0)
-                avg_score = np.mean(frame_scores)
+                self.model = list(checkpoint.values())[0]
+        else:
+            self.model = checkpoint
 
-            # 4. HUD RENDERING
-            overlay = display_frame.copy()
-            cv2.rectangle(overlay, (0, 0), (frame.shape[1], 150), (0, 0, 0), -1)
-            cv2.addWeighted(overlay, 0.5, display_frame, 0.5, 0, display_frame)
+        if hasattr(self.model, "cuda"):
+            self.model = self.model.cuda()
+            self.model.eval()
+        else:
+            print("Error: Extracted object is not a Torch model.")
+            print(f"Type found: {type(self.model)}")
+            
+    def detect(self):
+        self.vh = VisionHelper()
+        self.threshold = self.cfg['ai_settings']['threshold']
+        self.focus_val = self.cfg['camera_settings']['default_focus']
+        self.device_index = self.cfg['camera_settings']['device_index']
+        
+        print("🧠 Loading Patchcore Brain...")
+        cap = cv2.VideoCapture(self.device_index)
+        
+        # Setup Camera Properties
+        cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+        
+        # Lock Focus: Disable Auto (0) and set Manual value
+        cap.set(cv2.CAP_PROP_AUTOFOCUS, 1)
+        cap.set(cv2.CAP_PROP_FOCUS, self.focus_val)
+        
+        print(f"Inspection Active.")
+        print(f"Controls: [W/S] Adjust Focus | [Q] Quit")
 
-            cv2.putText(display_frame, f"STATUS: {status_label}", (20, 45), 
-                        cv2.FONT_HERSHEY_DUPLEX, 1.2, main_color, 2)
-            cv2.putText(display_frame, f"CAPSULES DETECTED: {tablet_count}", (20, 85), 
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 0), 2)
-            cv2.putText(display_frame, f"AVG ANOMALY SCORE: {avg_score:.3f}", (20, 125), 
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 1)
-
-            cv2.imshow("AI Quality Control", display_frame)
-            if cv2.waitKey(1) & 0xFF == ord('q'):
+        while True:
+            ret, frame = cap.read()
+            if not ret:
                 break
 
-    finally:
-        consumer.close()
+            # 1. Detection: Get all capsules currently in view
+            capsules = self.vh.get_all_capsules(frame)
+            current_count = len(capsules)
+
+            # 2. Inference: Process each detected capsule
+            for cap_data in capsules:
+                # Prepare the specific crop for the model
+                img_tensor = self.vh.prepare_crop(cap_data["crop"])
+                
+                with torch.no_grad():
+                    output = self.model(img_tensor)
+                    # Extract score (Anomalib 1.1 Batch object vs Tuple)
+                    score = output.pred_score.item() if hasattr(output, 'pred_score') else output[1].item()
+
+                # Determine Pass/Reject
+                status = "PASS" if score < self.threshold else "REJECT"
+                color = (0, 255, 0) if status == "PASS" else (0, 0, 255)
+
+                # Draw per-capsule box and score
+                x, y, w, h = cap_data["bbox"]
+                cv2.rectangle(frame, (x, y), (x + w, y + h), color, 2)
+                cv2.putText(frame, f"{status} {score:.1f}", (x, y - 10), 
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
+
+            # 3. UI: Global Information HUD
+            # Background bar for text
+            cv2.rectangle(frame, (0, 0), (250, 60), (0, 0, 0), -1)
+            cv2.putText(frame, f"ON SCREEN: {current_count}", (10, 25), 
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 0), 2)
+            cv2.putText(frame, f"FOCUS: {self.focus_val}", (10, 50), 
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 1)
+
+            # 4. Display and Controls
+            cv2.imshow('Centrum Quality Control - Live', frame)
+            
+            key = cv2.waitKey(1) & 0xFF
+            if key == ord('q'):
+                break
+            elif key == ord('w'):
+                self.focus_val = min(255, self.focus_val + 5)
+                cap.set(cv2.CAP_PROP_FOCUS, self.focus_val)
+                print(f"Focus increased to: {self.focus_val}")
+            elif key == ord('s'):
+                self.focus_val = max(0, self.focus_val - 5)
+                cap.set(cv2.CAP_PROP_FOCUS, self.focus_val)
+                print(f"Focus decreased to: {self.focus_val}")
+
+        cap.release()
         cv2.destroyAllWindows()
 
 if __name__ == "__main__":
-    start_inspection()
+    inspector = CapsuleInspector()
+    inspector.detect()

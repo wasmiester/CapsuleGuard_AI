@@ -1,6 +1,4 @@
 import cv2
-import time
-import json
 import base64
 import yaml
 from confluent_kafka import Producer
@@ -32,48 +30,44 @@ def run_virtual_sensor():
     print("--- CapsuleGuard AI: Virtual Sensor Active ---")
     print("Place a capsule under the camera to trigger inspection.")
 
-    while True:
-        ret, frame = cap.read()
-        if not ret: break
+KAFKA_SERVER = 'localhost:9092'
+TARGET_WIDTH = 640 
+TARGET_HEIGHT = 480
 
-        # Pre-process for motion stability
-        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-        gray = cv2.GaussianBlur(gray, (21, 21), 0)
+producer = KafkaProducer(
+    bootstrap_servers=[KAFKA_SERVER],
+    value_serializer=lambda x: json.dumps(x).encode('utf-8'),
+    # Optimization: Allow larger batches and gzip compression
+    batch_size=32768,
+    linger_ms=10,
+    compression_type='gzip'
+)
 
-        if prev_gray is None:
-            prev_gray = gray
-            continue
+cap = cv2.VideoCapture(1)
 
-        # Check for Stillness
-        delta = cv2.absdiff(prev_gray, gray)
-        motion_level = delta.sum()
-        if motion_level < 5000000: 
-            stable_frames += 1
-        else:
-            stable_frames = 0
+print("--- PRODUCER ACTIVE: Optimized for 30FPS ---")
 
-        # Trigger capture after 10 frames of stillness
-        if stable_frames == 10:
-            print(">> Target Settled. Sending 1080p frame to Kafka...")
-            send_to_kafka(frame)
-            stable_frames = -60 # Cooldown so it doesn't spam the same pill
+while True:
+    ret, frame = cap.read()
+    if not ret: break
 
-        prev_gray = gray
-        cv2.imshow("Factory Feed", frame)
-        if cv2.waitKey(1) & 0xFF == ord('q'): break
+    # 1. Resize
+    small_frame = cv2.resize(frame, (TARGET_WIDTH, TARGET_HEIGHT))
 
-def send_to_kafka(frame):
-    _, buffer = cv2.imencode('.jpg', frame)
-    img_b64 = base64.b64encode(buffer).decode('utf-8')
+    # 2. Compress 
+    encode_param = [int(cv2.IMWRITE_JPEG_QUALITY), 80]
+    _, buffer = cv2.imencode('.jpg', small_frame, encode_param)
     
+    b64_frame = base64.b64encode(buffer).decode('utf-8')
+
     payload = {
-        "timestamp": time.time(),
-        "image": img_b64,
-        "metadata": {"sensor_id": "line_1_cam"}
+        'timestamp': time.time(),
+        'image': b64_frame
     }
-    
-    producer.produce('raw_frames', json.dumps(payload), callback=delivery_report)
-    producer.flush()
 
-if __name__ == "__main__":
-    run_virtual_sensor()
+    producer.send('raw_frames', value=payload)
+    
+    # 3. sleep to prevent CPU pegged at 100%
+    time.sleep(0.01)
+
+cap.release()

@@ -1,10 +1,15 @@
-opencv-python-headless
 confluent-kafka
 numpy
-torch
 torchvision
 anomalib
 psycopg2-binary
 boto3
 streamlit
 psycopg2-binary
+streamlit
+torch 
+torchvision 
+torchaudio --index-url https://download.pytorch.org/whl/cu121
+opencv-python
+kafka-python-ng 
+numpy

@@ -1,8 +1,6 @@
 import cv2
 import torch
 import os
-import json
-import time
 from pathlib import Path
 from anomalib.models import Patchcore
 import sys
@@ -17,10 +15,10 @@ class CapsuleInspector:
     def __init__(self):
         with open("config.yaml", "r") as f:
             self.cfg = yaml.safe_load(f)
-            
+
         # Pathing: Looks for results folder in the project root
         model_path = Path(__file__).parent.parent / "results/exported_model/weights/torch/model.pt"
-        
+
         # Load the model
         checkpoint = torch.load(model_path, map_location="cuda", weights_only=False)
 
@@ -40,24 +38,24 @@ class CapsuleInspector:
         else:
             print("Error: Extracted object is not a Torch model.")
             print(f"Type found: {type(self.model)}")
-            
+
     def detect(self):
         self.vh = VisionHelper()
         self.threshold = self.cfg['ai_settings']['threshold']
         self.focus_val = self.cfg['camera_settings']['default_focus']
         self.device_index = self.cfg['camera_settings']['device_index']
         
-        print("🧠 Loading Patchcore Brain...")
+        print("Loading Patchcore Brain...")
         cap = cv2.VideoCapture(self.device_index)
-        
+
         # Setup Camera Properties
         cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
         cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
-        
+
         # Lock Focus: Disable Auto (0) and set Manual value
         cap.set(cv2.CAP_PROP_AUTOFOCUS, 1)
         cap.set(cv2.CAP_PROP_FOCUS, self.focus_val)
-        
+
         print(f"Inspection Active.")
         print(f"Controls: [W/S] Adjust Focus | [Q] Quit")
 
@@ -74,10 +72,9 @@ class CapsuleInspector:
             for cap_data in capsules:
                 # Prepare the specific crop for the model
                 img_tensor = self.vh.prepare_crop(cap_data["crop"])
-                
+
                 with torch.no_grad():
                     output = self.model(img_tensor)
-                    # Extract score (Anomalib 1.1 Batch object vs Tuple)
                     score = output.pred_score.item() if hasattr(output, 'pred_score') else output[1].item()
 
                 # Determine Pass/Reject
@@ -91,7 +88,6 @@ class CapsuleInspector:
                             cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
 
             # 3. UI: Global Information HUD
-            # Background bar for text
             cv2.rectangle(frame, (0, 0), (250, 60), (0, 0, 0), -1)
             cv2.putText(frame, f"ON SCREEN: {current_count}", (10, 25), 
                         cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 0), 2)
@@ -100,7 +96,7 @@ class CapsuleInspector:
 
             # 4. Display and Controls
             cv2.imshow('Centrum Quality Control - Live', frame)
-            
+
             key = cv2.waitKey(1) & 0xFF
             if key == ord('q'):
                 break
@@ -118,4 +114,3 @@ class CapsuleInspector:
 
 if __name__ == "__main__":
     inspector = CapsuleInspector()
-    inspector.detect()

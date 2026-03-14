@@ -2,9 +2,17 @@ import cv2
 import time
 import json
 import base64
+import yaml
 from confluent_kafka import Producer
 
-conf = {'bootstrap.servers': "localhost:9092"}
+with open("config.yaml", "r") as f:
+    cfg = yaml.safe_load(f)
+    
+DEVICE_INDEX = cfg['camera_settings']['device_index']
+conf = {'bootstrap.servers': cfg['kafka_settings']['bootstrap_servers']}
+DEVICE_INDEX = cfg['camera_settings']['device_index']
+FOCUS_VAL = cfg['camera_settings']['default_focus']
+
 producer = Producer(conf)
 
 def delivery_report(err, msg):
@@ -12,7 +20,12 @@ def delivery_report(err, msg):
         print(f"Message delivery failed: {err}")
 
 def run_virtual_sensor():
-    cap = cv2.VideoCapture(0) # to change camera change number to 1 or 2
+    cap = cv2.VideoCapture(DEVICE_INDEX)
+    cap.set(cv2.CAP_PROP_AUTOFOCUS, 0)
+    cap.set(cv2.CAP_PROP_FOCUS, FOCUS_VAL)
+    cap.set(cv2.CAP_PROP_AUTO_EXPOSURE, 1) 
+    cap.set(cv2.CAP_PROP_EXPOSURE, -6)
+    
     prev_gray = None
     stable_frames = 0
     

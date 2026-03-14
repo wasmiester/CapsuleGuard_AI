@@ -1,26 +1,49 @@
+ai_settings:
+  threshold: 29.0
+  model_path: "results/exported_model/weights/torch/model.pt"
+  test_img: "dataset/my_capsules/train/good/tic_tac_good_0_rot0_s0.9_b0.5.jpg"
+
+camera_settings:
+  device_index: 0
+  width: 640
+  height: 480
+  default_focus: 45
+
+kafka_settings:
+  bootstrap_servers: "localhost:9092"
+  raw_topic: "raw_frames"
+  processed_topic: "processed_frames"
+
+database:
+  connection_string: "dbname=capsule_inspection user=admin password=password123 host=localhost"
+
 dataset:
-  name: mvtec
-  format: mvtec
-  path: ./data/capsule
-  category: capsule
+  name: centrum_inspection
+  format: folder
+  root: ./dataset/my_capsules
+  normal_dir: train/good
+  task: classification
+  image_size: [224, 224]
   train_batch_size: 32
   eval_batch_size: 32
   num_workers: 8
-  image_size: [256, 256] # We resize for speed
+  normalization: imagenet
+  test_split_mode: synthetic 
+  val_split_mode: same_as_test
 
 model:
   name: patchcore
-  backbone: wide_resnet50_2 # Pro-grade feature extractor
-  pre_trained: true
+  backbone: wide_resnet50_2
   layers:
     - layer2
     - layer3
-  coreset_sampling_ratio: 0.1 # Shrinks the memory bank for faster speed
+  num_neighbors: 9
 
-metrics:
-  image:
-    - F1Score
-    - AUROC
+trainer:
+  accelerator: gpu
+  devices: 1
+  max_epochs: 1
+  check_val_every_n_epoch: 1
 
 project:
-    path: ./results
+  path: ./results

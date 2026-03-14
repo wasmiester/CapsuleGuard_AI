@@ -1,8 +1,34 @@
 import cv2
 import base64
-import json
-import time
-from kafka import KafkaProducer
+import yaml
+from confluent_kafka import Producer
+
+with open("config.yaml", "r") as f:
+    cfg = yaml.safe_load(f)
+    
+DEVICE_INDEX = cfg['camera_settings']['device_index']
+conf = {'bootstrap.servers': cfg['kafka_settings']['bootstrap_servers']}
+DEVICE_INDEX = cfg['camera_settings']['device_index']
+FOCUS_VAL = cfg['camera_settings']['default_focus']
+
+producer = Producer(conf)
+
+def delivery_report(err, msg):
+    if err is not None:
+        print(f"Message delivery failed: {err}")
+
+def run_virtual_sensor():
+    cap = cv2.VideoCapture(DEVICE_INDEX)
+    cap.set(cv2.CAP_PROP_AUTOFOCUS, 0)
+    cap.set(cv2.CAP_PROP_FOCUS, FOCUS_VAL)
+    cap.set(cv2.CAP_PROP_AUTO_EXPOSURE, 1) 
+    cap.set(cv2.CAP_PROP_EXPOSURE, -6)
+    
+    prev_gray = None
+    stable_frames = 0
+    
+    print("--- CapsuleGuard AI: Virtual Sensor Active ---")
+    print("Place a capsule under the camera to trigger inspection.")
 
 KAFKA_SERVER = 'localhost:9092'
 TARGET_WIDTH = 640 

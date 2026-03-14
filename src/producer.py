@@ -11,7 +11,6 @@ TARGET_HEIGHT = 480
 producer = KafkaProducer(
     bootstrap_servers=[KAFKA_SERVER],
     value_serializer=lambda x: json.dumps(x).encode('utf-8'),
-    # Optimization: Allow larger batches and gzip compression
     batch_size=32768,
     linger_ms=10,
     compression_type='gzip'

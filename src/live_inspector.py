@@ -47,7 +47,7 @@ class CapsuleInspector:
         self.focus_val = self.cfg['camera_settings']['default_focus']
         self.device_index = self.cfg['camera_settings']['device_index']
         
-        print("🧠 Loading Patchcore Brain...")
+        print("Loading Patchcore Brain...")
         cap = cv2.VideoCapture(self.device_index)
         
         # Setup Camera Properties
@@ -77,7 +77,6 @@ class CapsuleInspector:
                 
                 with torch.no_grad():
                     output = self.model(img_tensor)
-                    # Extract score (Anomalib 1.1 Batch object vs Tuple)
                     score = output.pred_score.item() if hasattr(output, 'pred_score') else output[1].item()
 
                 # Determine Pass/Reject
@@ -91,7 +90,6 @@ class CapsuleInspector:
                             cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
 
             # 3. UI: Global Information HUD
-            # Background bar for text
             cv2.rectangle(frame, (0, 0), (250, 60), (0, 0, 0), -1)
             cv2.putText(frame, f"ON SCREEN: {current_count}", (10, 25), 
                         cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 0), 2)

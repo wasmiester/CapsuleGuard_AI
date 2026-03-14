@@ -28,16 +28,15 @@ def train_brain():
         default_root_dir="./results"
     )
 
-    print("--- Building the Memory Bank... Utilizing RTX 4070 ---")
+    print("---Building the Memory Bank---")
     
     engine.fit(model=model, datamodule=datamodule)
-
     engine.export(
         model=model,
         export_type="torch",
         export_root="./results/exported_model"
     )
-
+    
     print("--- Success! Model exported to ./results/exported_model ---")
 
 if __name__ == "__main__":

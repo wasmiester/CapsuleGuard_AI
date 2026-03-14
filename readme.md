@@ -10,6 +10,7 @@ A high-performance computer vision system designed to detect and classify the ph
 ## Project Pipeline
 The system utilizes a staged pipeline to ensure high precision while maintaining low latency:
 
+```text
 Camera Frame
       │
       ▼
@@ -32,6 +33,7 @@ Deep Learning Classifier
       │
       ▼
 Damage / No Damage Prediction
+```
 
 ---
 

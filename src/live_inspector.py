@@ -44,7 +44,7 @@ class CapsuleInspector:
         self.threshold = self.cfg['ai_settings']['threshold']
         self.focus_val = self.cfg['camera_settings']['default_focus']
         self.device_index = self.cfg['camera_settings']['device_index']
-
+        
         print("Loading Patchcore Brain...")
         cap = cv2.VideoCapture(self.device_index)
 
